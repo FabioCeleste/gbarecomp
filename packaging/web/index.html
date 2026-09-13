@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gbarecomp web</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 16px; background: #111; color: #ddd;
+         font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  button { font: inherit; padding: 6px 14px; }
+  #status { color: #9cf; }
+  canvas { display: block; background: #000; width: 720px; max-width: 100%;
+           aspect-ratio: 3 / 2; image-rendering: pixelated; }
+  #log { white-space: pre-wrap; word-break: break-all; max-height: 45vh; overflow: auto;
+         background: #000; padding: 8px; margin-top: 12px; }
+  .err { color: #f88; }
+  .help { color: #888; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="start">Start</button>
+  <span id="status">idle</span>
+</div>
+<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<div class="help">
+  Query params: <code>?args=--frames%20600%20--no-window</code> replaces the extra runtime
+  arguments; <code>&amp;env=KEY=VALUE,KEY2=VALUE2</code> sets environment variables;
+  <code>&amp;rom=file.gba&amp;bios=file.bin</code> picks the served asset names.
+</div>
+<div id="log"></div>
+<script src="rom_sha1.js" onerror="void 0"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const logEl = document.getElementById("log");
+  const statusEl = document.getElementById("status");
+  const startBtn = document.getElementById("start");
+  const maxLines = 4000;
+
+  function line(text, cls) {
+    // Emscripten prints whole minified lines on some errors; keep the page usable.
+    if (text.length > 2000) text = text.slice(0, 2000) + " …[truncated]";
+    // Mirrored to the console so headless runs (--enable-logging) capture it.
+    (cls ? console.error : console.log)(text);
+    const div = document.createElement("div");
+    if (cls) div.className = cls;
+    div.textContent = text;
+    logEl.appendChild(div);
+    while (logEl.childNodes.length > maxLines) logEl.removeChild(logEl.firstChild);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function status(text) { statusEl.textContent = text; }
+
+  window.addEventListener("error", (e) => line("[window.error] " + e.message, "err"));
+  window.addEventListener("unhandledrejection", (e) => line("[unhandledrejection] " + e.reason, "err"));
+
+  if (!self.crossOriginIsolated) {
+    line("page is not cross-origin isolated: SharedArrayBuffer/pthreads unavailable. "
+         + "Serve with packaging/web/serve.py (COOP/COEP headers).", "err");
+  }
+
+  const romName = q.get("rom") || "game.gba";
+  const biosName = q.get("bios") || "gba_bios.bin";
+  // rom_sha1.js (written by build_web.sh) sets the expected hash; the runtime
+  // refuses to launch an unverified ROM.
+  const romSha1 = q.get("sha1") || self.GBARECOMP_ROM_SHA1 || "";
+  const extra = (q.get("args") || "").split(" ").filter(Boolean);
+  const env = {};
+  (q.get("env") || "").split(",").filter(Boolean).forEach((kv) => {
+    const i = kv.indexOf("=");
+    if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
+  });
+
+  if (q.get("autostart") === "1") {
+    // Headless/automated runs: no user gesture, so audio may stay suspended.
+    addEventListener("load", () => startBtn.click());
+  }
+
+  startBtn.addEventListener("click", () => {
+    startBtn.disabled = true;
+    status("loading…");
+    const t0 = performance.now();
+    window.Module = {
+      canvas: document.getElementById("canvas"),
+      arguments: ["--rom", "/data/" + romName, "--bios", "/data/" + biosName]
+        .concat(romSha1 ? ["--rom-sha1", romSha1] : []).concat(extra),
+      print: (t) => line(t),
+      printErr: (t) => line(t, "err"),
+      setStatus: (t) => { if (t) status(t); },
+      onAbort: (what) => { status("aborted"); line("[abort] " + what, "err"); },
+      onExit: (code) => { status("exited " + code); line("[exit] code=" + code); },
+      preRun: [function () {
+        Object.assign(Module.ENV, env);
+        Module.FS.mkdir("/data");
+        Module.addRunDependency("assets");
+        Promise.all([romName, biosName].map((name) =>
+          fetch(name).then((r) => {
+            if (!r.ok) throw new Error(name + ": HTTP " + r.status);
+            return r.arrayBuffer();
+          }).then((buf) => Module.FS.writeFile("/data/" + name, new Uint8Array(buf)))
+        )).then(() => {
+          line("[shell] assets loaded; args: " + Module.arguments.join(" "));
+          line("[shell] env: " + JSON.stringify(env));
+          Module.removeRunDependency("assets");
+        }).catch((err) => {
+          status("asset load failed");
+          line("[shell] " + err, "err");
+        });
+      }],
+      onRuntimeInitialized: () => {
+        status("running");
+        line("[shell] runtime initialized in " + Math.round(performance.now() - t0) + " ms");
+      },
+    };
+    const s = document.createElement("script");
+    s.src = "game.js";
+    s.onerror = () => line("[shell] failed to load game.js", "err");
+    document.body.appendChild(s);
+  });
+})();
+</script>
+</body>
+</html>
