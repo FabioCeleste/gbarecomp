@@ -11,8 +11,9 @@
   #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   button { font: inherit; padding: 6px 14px; }
   #status { color: #9cf; }
-  canvas { display: block; background: #000; width: 720px; max-width: 100%;
-           aspect-ratio: 3 / 2; image-rendering: pixelated; }
+  #surface { width: 100%; max-width: 720px; height: min(65vh, 600px); resize: both; overflow: hidden; }
+  #surface:fullscreen { max-width: none !important; height: 100%; }
+  canvas { display: block; background: #000; width: 100%; height: 100%; image-rendering: pixelated; }
   #log { white-space: pre-wrap; word-break: break-all; max-height: 45vh; overflow: auto;
          background: #000; padding: 8px; margin-top: 12px; }
   .err { color: #f88; }
@@ -22,9 +23,21 @@
 <body>
 <div id="bar">
   <button id="start">Start</button>
+  <button id="pause" disabled>Pause / resume</button>
+  <button id="fullscreen" disabled>Fullscreen</button>
+  <button id="audio" disabled>Enable audio</button>
+  <button id="stop" disabled>Stop</button>
+  <button id="reload">Restart (reload)</button>
+  <button id="export">Export diagnostics / saves</button>
+  <label>Volume <input id="volume" type="range" min="0" max="100" value="100"></label>
+  <label>Filter <select id="filter"><option value="0">Nearest</option><option value="1">Linear</option><option value="2">Sharp</option></select></label>
+  <label>Slot <select id="slot"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></label>
+  <button id="save" disabled>Save state</button><button id="load" disabled>Load state</button>
   <span id="status">idle</span>
 </div>
-<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<div id="surface"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0" aria-label="Game screen"></canvas></div>
+<p id="metrics"></p><div id="downloads"></div>
+<p class="help">Saves are volatile (MEMFS). Export them before reloading. X/Z = A/B, arrows = D-pad, C/V = L/R, Enter = Start, right Shift = Select; Shift+P pauses. F1–F9 loads; Shift+F1–F9 saves. Click the game to activate keyboard/gamepad. Sensors and the native overlay are unavailable.</p>
 <div class="help">
   Query params: <code>?args=--frames%20600%20--no-window</code> replaces the extra runtime
   arguments; <code>&amp;env=KEY=VALUE,KEY2=VALUE2</code> sets environment variables;
@@ -32,95 +45,7 @@
 </div>
 <div id="log"></div>
 <script src="rom_sha1.js" onerror="void 0"></script>
-<script>
-(function () {
-  const q = new URLSearchParams(location.search);
-  const logEl = document.getElementById("log");
-  const statusEl = document.getElementById("status");
-  const startBtn = document.getElementById("start");
-  const maxLines = 4000;
-
-  function line(text, cls) {
-    // Emscripten prints whole minified lines on some errors; keep the page usable.
-    if (text.length > 2000) text = text.slice(0, 2000) + " …[truncated]";
-    // Mirrored to the console so headless runs (--enable-logging) capture it.
-    (cls ? console.error : console.log)(text);
-    const div = document.createElement("div");
-    if (cls) div.className = cls;
-    div.textContent = text;
-    logEl.appendChild(div);
-    while (logEl.childNodes.length > maxLines) logEl.removeChild(logEl.firstChild);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-  function status(text) { statusEl.textContent = text; }
-
-  window.addEventListener("error", (e) => line("[window.error] " + e.message, "err"));
-  window.addEventListener("unhandledrejection", (e) => line("[unhandledrejection] " + e.reason, "err"));
-
-  if (!self.crossOriginIsolated) {
-    line("page is not cross-origin isolated: SharedArrayBuffer/pthreads unavailable. "
-         + "Serve with packaging/web/serve.py (COOP/COEP headers).", "err");
-  }
-
-  const romName = q.get("rom") || "game.gba";
-  const biosName = q.get("bios") || "gba_bios.bin";
-  // rom_sha1.js (written by build_web.sh) sets the expected hash; the runtime
-  // refuses to launch an unverified ROM.
-  const romSha1 = q.get("sha1") || self.GBARECOMP_ROM_SHA1 || "";
-  const extra = (q.get("args") || "").split(" ").filter(Boolean);
-  const env = {};
-  (q.get("env") || "").split(",").filter(Boolean).forEach((kv) => {
-    const i = kv.indexOf("=");
-    if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
-  });
-
-  if (q.get("autostart") === "1") {
-    // Headless/automated runs: no user gesture, so audio may stay suspended.
-    addEventListener("load", () => startBtn.click());
-  }
-
-  startBtn.addEventListener("click", () => {
-    startBtn.disabled = true;
-    status("loading…");
-    const t0 = performance.now();
-    window.Module = {
-      canvas: document.getElementById("canvas"),
-      arguments: ["--rom", "/data/" + romName, "--bios", "/data/" + biosName]
-        .concat(romSha1 ? ["--rom-sha1", romSha1] : []).concat(extra),
-      print: (t) => line(t),
-      printErr: (t) => line(t, "err"),
-      setStatus: (t) => { if (t) status(t); },
-      onAbort: (what) => { status("aborted"); line("[abort] " + what, "err"); },
-      onExit: (code) => { status("exited " + code); line("[exit] code=" + code); },
-      preRun: [function () {
-        Object.assign(Module.ENV, env);
-        Module.FS.mkdir("/data");
-        Module.addRunDependency("assets");
-        Promise.all([romName, biosName].map((name) =>
-          fetch(name).then((r) => {
-            if (!r.ok) throw new Error(name + ": HTTP " + r.status);
-            return r.arrayBuffer();
-          }).then((buf) => Module.FS.writeFile("/data/" + name, new Uint8Array(buf)))
-        )).then(() => {
-          line("[shell] assets loaded; args: " + Module.arguments.join(" "));
-          line("[shell] env: " + JSON.stringify(env));
-          Module.removeRunDependency("assets");
-        }).catch((err) => {
-          status("asset load failed");
-          line("[shell] " + err, "err");
-        });
-      }],
-      onRuntimeInitialized: () => {
-        status("running");
-        line("[shell] runtime initialized in " + Math.round(performance.now() - t0) + " ms");
-      },
-    };
-    const s = document.createElement("script");
-    s.src = "game.js";
-    s.onerror = () => line("[shell] failed to load game.js", "err");
-    document.body.appendChild(s);
-  });
-})();
-</script>
+<script src="host_web.js"></script>
+<script src="bootstrap.js"></script>
 </body>
 </html>

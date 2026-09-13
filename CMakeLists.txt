@@ -103,6 +103,7 @@ option(GBA_COSIM
     "Build the first-divergence co-simulation oracle (state hash + TCP park/step)"
     OFF)
 
+if(NOT EMSCRIPTEN)
 if(ANDROID AND TARGET SDL2::SDL2)
     # Android applications provide SDL from the parent Gradle/CMake project.
     # Reusing that target keeps SDLActivity's libSDL2.so as the single backend.
@@ -173,6 +174,8 @@ else()
 endif()
 
 endif()
+
+endif() # NOT EMSCRIPTEN: never discover host SDL for wasm
 
 if(GBARECOMP_STATIC_RELEASE)
     # NOTE: -static / -static-libgcc / -static-libstdc++ MUST be set
@@ -338,7 +341,6 @@ add_library(gbarecomp_runtime STATIC
     # must work even when the package catalog itself is disabled.
     src/runtime/mod_function_hooks.cpp
     src/runtime/host_platform.cpp
-    src/runtime/host_window.cpp
     src/runtime/color_lut.cpp
     src/runtime/asset_picker.cpp
     # Production abort stubs for runtime_dispatch_miss +
@@ -396,6 +398,21 @@ else()
                    "to populate.")
 endif()
 target_include_directories(gbarecomp_runtime PUBLIC src/runtime)
+option(GBARECOMP_WEB_HOST "Build the browser HostWindow backend" OFF)
+if(GBARECOMP_WEB_HOST AND NOT EMSCRIPTEN)
+    message(FATAL_ERROR "GBARECOMP_WEB_HOST requires Emscripten")
+endif()
+if(EMSCRIPTEN AND GBARECOMP_RUNTIME_UI_ROOT)
+    message(FATAL_ERROR "The SDL_Renderer2 runtime UI is unavailable on wasm; use the HTML host controls")
+endif()
+if(GBARECOMP_WEB_HOST)
+    target_sources(gbarecomp_runtime PRIVATE src/runtime/host_window_web.cpp)
+    target_compile_definitions(gbarecomp_runtime PUBLIC GBARECOMP_WEB_HOST=1)
+    message(STATUS "gbarecomp: host_backend=web")
+else()
+    target_sources(gbarecomp_runtime PRIVATE src/runtime/host_window.cpp)
+endif()
+
 if(GBARECOMP_RUNTIME_UI_ROOT AND
    EXISTS "${GBARECOMP_RUNTIME_UI_ROOT}/src/recomp_runtime_ui.h")
     target_compile_definitions(gbarecomp_runtime PUBLIC GBARECOMP_RUNTIME_UI=1)

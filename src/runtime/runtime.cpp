@@ -2026,6 +2026,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         g_runtime_cycles = 0;
         runtime_fp_reset();
         ++g_runtime_state_epoch;
+#if defined(GBARECOMP_WEB_HOST)
+        bus.audio().discard_playback();
+#endif
         return true;
     };
     auto do_savestate_save_bytes = [&](std::vector<uint8_t>& bytes,
@@ -2042,6 +2045,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         g_runtime_cycles = 0;
         runtime_fp_reset();
         ++g_runtime_state_epoch;
+#if defined(GBARECOMP_WEB_HOST)
+        bus.audio().discard_playback();
+#endif
         return true;
     };
 
@@ -3063,6 +3069,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             std::string path = slot_path(ev.load_slot);
             std::string e;
             if (do_savestate_load(path, e)) {
+#if defined(GBARECOMP_WEB_HOST)
+                win.reset_audio();
+#endif
                 std::printf("savestate_loaded slot=%d path=\"%s\" pc=0x%08x "
                             "frame=%llu\n", ev.load_slot, path.c_str(),
                             g_cpu.R[15],
@@ -3108,6 +3117,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                         rewind_history[target_index].state, e)) {
                     while (rewind_history.size() > target_index + 1)
                         rewind_history.pop_back();
+#if defined(GBARECOMP_WEB_HOST)
+                    win.reset_audio();
+#endif
                     last_presented_frame = ppu.frame_count() - 1;
                     next_rewind_capture_frame =
                         ppu.frame_count() + rewind_interval;
@@ -3125,25 +3137,64 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
     };
 
+#if defined(GBARECOMP_WEB_HOST)
+    uint64_t host_audio_state_epoch = g_runtime_state_epoch;
+    uint64_t web_save_last_flush = ppu.frame_count();
+#endif
     auto drain_host_audio = [&]() {
         int16_t audio_buf[2048];
+#if defined(GBARECOMP_WEB_HOST)
+        if (host_audio_state_epoch != g_runtime_state_epoch) {
+            win.reset_audio();
+            host_audio_state_epoch = g_runtime_state_epoch;
+        }
+        // Bounded work, including 262144 Hz source frames and rate transitions.
+        for (int budget = 0; budget < 16; ++budget) {
+            uint32_t rate = 0;
+            const auto n = bus.audio().drain_sample_block(audio_buf, 2048, rate);
+            if (!n) break;
+            if (!fast_forward_active) {
+                gba_mod_audio_mix(audio_buf, n);
+                win.push_audio_block(audio_buf, n, rate);
+            }
+        }
+#else
         const auto n = bus.audio().drain_samples(audio_buf, 2048);
         if (n && !fast_forward_active) {
             gba_mod_audio_mix(audio_buf, n);
             win.push_audio_samples(audio_buf, n);
         }
+#endif
     };
     auto service_host_pause = [&]() {
         bool waited = false;
-        while (!host_quit && args.window && host_paused) {
+        while (!host_quit && args.window && (host_paused
+#if defined(GBARECOMP_WEB_HOST)
+                || win.auto_paused()
+#endif
+                )) {
+#if defined(GBARECOMP_WEB_HOST)
+            win.report_paused(true);
+            if (!waited) win.reset_audio();
+#endif
             waited = true;
             pump_host_input();
+#if defined(GBARECOMP_WEB_HOST)
+            // The page re-presents its private staging copy; publishing here
+            // would count paused frames as new ones.
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+#else
             // Keep the native window (and any runtime UI drawn over the
             // game renderer) alive while the guest is held still.
             win.present(live_fb.data());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#endif
         }
         if (waited && pacer) pacer->reset();
+#if defined(GBARECOMP_WEB_HOST)
+        win.report_paused(false);
+        if (waited) { bus.audio().discard_playback(); win.reset_audio(); }
+#endif
     };
 
     if (args.window) {
@@ -3201,6 +3252,13 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 if (present_frame) win.present(live_fb.data());
                 if (phase_active) fp_t2 = FramePhaseRing::now_ns();
                 drain_host_audio();
+#if defined(GBARECOMP_WEB_HOST)
+                // present-in-place may never return to the outer auto-flush.
+                if (bus.save().dirty() && frame - web_save_last_flush >= 60) {
+                    flush_save();
+                    web_save_last_flush = frame;
+                }
+#endif
                 if (phase_active) fp_t3 = FramePhaseRing::now_ns();
                 pump_host_input();
                 service_host_pause();
