@@ -59,6 +59,14 @@ else()
     add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 endif()
 
+# WebAssembly: generated code relies on guaranteed tail calls (runtime_arm.h,
+# GBARECOMP_TAIL_*). Without -mtail-call clang silently ignores musttail, so the
+# header refuses to compile; enable the feature for every target and the link.
+if(EMSCRIPTEN)
+    add_compile_options(-mtail-call)
+    add_link_options(-mtail-call)
+endif()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SDL2 — soft dependency. When present we build host_window.cpp with the
 # real SDL backend; otherwise it compiles as a no-op stub. CI and headless

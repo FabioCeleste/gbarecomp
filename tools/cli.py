@@ -114,6 +114,10 @@ set_target_properties(gbarecomp_game PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
 )
+if(EMSCRIPTEN)
+    # Generated code needs guaranteed tail calls (see runtime_arm.h).
+    target_compile_options(gbarecomp_game PRIVATE -mtail-call)
+endif()
 '''
     build_ps1 = '''$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path

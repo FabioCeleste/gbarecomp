@@ -110,5 +110,11 @@ function(gbarecomp_add_runtime_target target_name)
             GBARECOMP_DEFAULT_GAME_CONFIG="${GR_DEFAULT_GAME_CONFIG_PATH}")
     endif()
 
+    if(EMSCRIPTEN)
+        # Generated code needs guaranteed tail calls (see runtime_arm.h).
+        target_compile_options(${target_name} PRIVATE -mtail-call)
+        target_link_options(${target_name} PRIVATE -mtail-call)
+    endif()
+
     gbarecomp_target_link_host_stack(${target_name} PRIVATE)
 endfunction()
