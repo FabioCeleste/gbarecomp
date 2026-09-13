@@ -3125,6 +3125,27 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
     };
 
+    auto drain_host_audio = [&]() {
+        int16_t audio_buf[2048];
+        const auto n = bus.audio().drain_samples(audio_buf, 2048);
+        if (n && !fast_forward_active) {
+            gba_mod_audio_mix(audio_buf, n);
+            win.push_audio_samples(audio_buf, n);
+        }
+    };
+    auto service_host_pause = [&]() {
+        bool waited = false;
+        while (!host_quit && args.window && host_paused) {
+            waited = true;
+            pump_host_input();
+            // Keep the native window (and any runtime UI drawn over the
+            // game renderer) alive while the guest is held still.
+            win.present(live_fb.data());
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (waited && pacer) pacer->reset();
+    };
+
     if (args.window) {
         runtime_set_host_service_hook([&]() { win.service_events(); });
     }
@@ -3179,14 +3200,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 if (phase_active) fp_t1 = FramePhaseRing::now_ns();
                 if (present_frame) win.present(live_fb.data());
                 if (phase_active) fp_t2 = FramePhaseRing::now_ns();
-                int16_t audio_buf[2048];
-                std::size_t n = bus.audio().drain_samples(audio_buf, 2048);
-                if (n > 0 && !fast_forward_active) {
-                    gba_mod_audio_mix(audio_buf, n);
-                    win.push_audio_samples(audio_buf, n);
-                }
+                drain_host_audio();
                 if (phase_active) fp_t3 = FramePhaseRing::now_ns();
                 pump_host_input();
+                service_host_pause();
                 // Present-in-place can remain inside a single step_once() for
                 // the entire windowed session. Advance deterministic replays
                 // here as well as in the outer loop so windowed repros exercise
@@ -3469,11 +3486,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     for (uint64_t i = 0; i < step_budget && !host_quit; ++i) {
         // Paused: hold the guest still, keep the window alive (input pump,
         // re-present, ~100 Hz idle). Applies to windowed play only.
-        while (host_paused && !host_quit && args.window) {
-            pump_host_input();
-            win.present(live_fb.data());
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+        service_host_pause();
         if (host_quit) break;
         if (!step_once()) break;
         if (input_replay_requested) {
@@ -3568,12 +3581,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     if (++framedump_written >= framedump_max) host_quit = true;
                 }
                 if (phase_active) fp_t2 = FramePhaseRing::now_ns();
-                int16_t audio_buf[2048];
-                std::size_t n = bus.audio().drain_samples(audio_buf, 2048);
-                if (n > 0 && !fast_forward_active) {
-                    gba_mod_audio_mix(audio_buf, n);
-                    win.push_audio_samples(audio_buf, n);
-                }
+                drain_host_audio();
                 if (phase_active) fp_t3 = FramePhaseRing::now_ns();
                 pump_host_input();
                 if (phase_active) fp_t4 = FramePhaseRing::now_ns();
