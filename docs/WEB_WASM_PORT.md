@@ -127,7 +127,7 @@ e `packaging/web/serve.py` (COOP/COEP). Estado atual em `docs/WEB_WASM_EXPERIMEN
 | `src/runtime/asset_picker.cpp:221` | Branch POSIX; web precisa de `<input type=file>` ou arquivo pré-carregado |
 | `src/runtime/overlay_compile.cpp`, `overlay_loader.cpp` | Stubs para wasm (ver seção 3) |
 | `src/runtime/runtime.cpp:2550` | O gate `!__ANDROID__` de fullscreen/window-scale do menu |
-| `src/runtime/runtime.cpp:1622-1715` | **Saves.** Hoje gravam `.sav` via `std::filesystem`. No wasm isso cai em MEMFS e **evapora ao recarregar a página**. Precisa de IDBFS + `FS.syncfs` no flush |
+| `src/runtime/runtime.cpp:1622-1715` | **Saves.** Gravam `.sav` via `std::filesystem`. **Resolvido (2026-09-13):** o bundle monta IDBFS em `/saves/<rom sha1>` (`--save-path .../battery.sav --state-dir ...`); o runtime só avisa que gravou (`web_notify_storage_write`) e a página sincroniza com `FS.syncfs` explícito (`packaging/web/save_store.js`). Ver `docs/WEB_SAVE_PERSISTENCE_PLAN.md` |
 | `src/debug/tcp_debug_server.cpp`, `src/debug/cosim.cpp` | Sockets crus. `gbarecomp_debug` é sempre linkado (`CMakeLists.txt:423`), então o stub tem que ser interno |
 
 ### Casca por jogo

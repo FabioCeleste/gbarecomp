@@ -18,6 +18,11 @@
 # code needs guaranteed tail calls, so everything is built with -mtail-call
 # (runtime_arm.h refuses to compile otherwise).
 #
+# Saves: /saves is an IDBFS mount (-lidbfs.js; never -sWASMFS, which cannot
+# link it) synced explicitly by save_store.js. These link flags are only here,
+# not in cmake/runtime.cmake.in, whose wasm flags already diverge (open review
+# finding).
+#
 # The recompiler itself never runs here: generate the project and the BIOS with
 # a native build first. There is no self-heal compiler in a browser, so a web
 # build is only honest for a game whose coverage is FULLY STATIC.
@@ -89,6 +94,7 @@ em++ -O2 -std=c++20 -pthread -mtail-call \
   -sALLOW_MEMORY_GROWTH -sINITIAL_MEMORY=134217728 \
   -sSTACK_SIZE=16777216 -sDEFAULT_PTHREAD_STACK_SIZE=16777216 \
   -sFORCE_FILESYSTEM -sEXPORTED_RUNTIME_METHODS=FS,ENV,addRunDependency,removeRunDependency \
+  -lidbfs.js \
   -sENVIRONMENT=web,worker -sEXIT_RUNTIME=1 \
   --profiling-funcs --emit-symbol-map \
   -o "$OUT/game.js"
@@ -100,14 +106,14 @@ em++ -O2 -std=c++20 -I"$R/src/runtime" "$R/src/runtime/host_web_audio_dsp.cpp" -
   -sEXPORTED_RUNTIME_METHODS=HEAP16 -sINITIAL_MEMORY=16777216 \
   -o "$OUT/audio_dsp.js"
 cat "$OUT/audio_dsp.js" "$R/packaging/web/audio_worklet.js" > "$OUT/audio_worklet_bundle.js"
-cp "$R/packaging/web/index.html" "$R/packaging/web/host_web.js" "$R/packaging/web/bootstrap.js" "$R/packaging/web/audio_worklet.js" "$OUT/"
+cp "$R/packaging/web/index.html" "$R/packaging/web/host_web.js" "$R/packaging/web/save_store.js" "$R/packaging/web/bootstrap.js" "$R/packaging/web/audio_worklet.js" "$OUT/"
 python3 - "$R" "$OUT" "$BIOS_GEN" "$PROJECT" <<'MANIFEST'
 import hashlib,json,pathlib,subprocess,sys
 root,out,bios,project=map(pathlib.Path,sys.argv[1:])
 def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 data={'abi':1,'host_backend':'web','revision':subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),
       'emcc':subprocess.check_output(['emcc','--version'],text=True).splitlines()[0],
-      'files':{p.name:digest(p) for p in out.iterdir() if p.is_file() and p.name in ['game.js','game.wasm','host_web.js','index.html','audio_worklet_bundle.js']},
+      'files':{p.name:digest(p) for p in out.iterdir() if p.is_file() and p.name in ['game.js','game.wasm','host_web.js','save_store.js','bootstrap.js','index.html','audio_worklet_bundle.js']},
       'inputs':{p.name:digest(p) for p in [bios/'bios_recompiled.cpp',bios/'bios_dispatch_table.cpp',project/'game.toml'] if p.exists()}}
 (out/'manifest.json').write_text(json.dumps(data,indent=2)+'\n')
 MANIFEST

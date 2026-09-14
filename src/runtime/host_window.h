@@ -187,4 +187,13 @@ private:
     void* impl_ = nullptr;  // backend-specific opaque
 };
 
+#if defined(GBARECOMP_WEB_HOST)
+// Persistent browser storage: the page (packaging/web/save_store.js) owns
+// when /saves is synced to IndexedDB; the runtime only reports that it wrote.
+enum class WebStorageWrite : uint32_t { Battery = 1, State = 2 };
+// Worker -> page, non-blocking. Integers only (async proxy). Independent of
+// HostWindow lifetime: the final battery flush runs after HostWindow::close().
+void web_notify_storage_write(WebStorageWrite kind, bool ok);
+#endif
+
 }  // namespace gbarecomp

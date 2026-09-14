@@ -48,7 +48,8 @@ class Host {
     try {
       const Context=root.AudioContext||root.webkitAudioContext;
       this.audio=new Context();const resumed=this.audio.resume();
-      this.audio.onstatechange=()=>{this.stats.audio=this.audio.state;this.report('Audio '+this.audio.state);};
+      const context=this.audio; // detach nulls this.audio before close() reports 'closed'
+      context.onstatechange=()=>{this.stats.audio=context.state;this.report('Audio '+context.state);};
       await this.audio.audioWorklet.addModule('audio_worklet_bundle.js');
       this.node=new AudioWorkletNode(this.audio,'gbr-audio',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]});
       this.gain=this.audio.createGain();this.node.connect(this.gain).connect(this.audio.destination);
@@ -126,7 +127,7 @@ class Host {
     this.raf=requestAnimationFrame(()=>this.tick());
   }
   snapshot(){
-    const s={...this.stats,capabilities:{webgl:true,gamepad:!!navigator.getGamepads,gyro:false,solarSensor:false,exclusiveFullscreen:false,savePersistence:false,runtimeOverlay:false}};
+    const s={...this.stats,capabilities:{webgl:true,gamepad:!!navigator.getGamepads,gyro:false,solarSensor:false,exclusiveFullscreen:false,savePersistence:!!root.GbrSaves?.mounted&&root.GbrSaves.state!=='unavailable',runtimeOverlay:false}};
     if(this.control)for(const key of Object.keys(this.d.fields))if(key!=='_end')s[key==='state'?'producerState':key]=this.load(key);
     return {...this.finalStats,...s};
   }

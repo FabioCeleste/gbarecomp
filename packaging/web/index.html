@@ -11,6 +11,7 @@
   #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   button { font: inherit; padding: 6px 14px; }
   #status { color: #9cf; }
+  #savebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   #surface { width: 100%; max-width: 720px; height: min(65vh, 600px); resize: both; overflow: hidden; }
   #surface:fullscreen { max-width: none !important; height: 100%; }
   canvas { display: block; background: #000; width: 100%; height: 100%; image-rendering: pixelated; }
@@ -35,9 +36,16 @@
   <button id="save" disabled>Save state</button><button id="load" disabled>Load state</button>
   <span id="status">idle</span>
 </div>
+<div id="savebar">
+  <span id="savestatus">Browser save</span>
+  <button id="exportsave" disabled>Export save</button>
+  <button id="importsave">Import save</button><input id="importfile" type="file" accept=".sav,application/octet-stream" hidden>
+  <button id="restoresave">Restore backup</button>
+  <button id="deletesaves">Delete saves</button>
+</div>
 <div id="surface"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0" aria-label="Game screen"></canvas></div>
 <p id="metrics"></p><div id="downloads"></div>
-<p class="help">Saves are volatile (MEMFS). Export them before reloading. X/Z = A/B, arrows = D-pad, C/V = L/R, Enter = Start, right Shift = Select; Shift+P pauses. F1–F9 loads; Shift+F1–F9 saves. Click the game to activate keyboard/gamepad. Sensors and the native overlay are unavailable.</p>
+<p class="help">Saves stay in this browser (IndexedDB for this site, on this device) and are never uploaded. Private windows, clearing site data or a different domain lose them: export a copy to keep one. X/Z = A/B, arrows = D-pad, C/V = L/R, Enter = Start, right Shift = Select; Shift+P pauses. F1–F9 loads; Shift+F1–F9 saves. Click the game to activate keyboard/gamepad. Sensors and the native overlay are unavailable.</p>
 <div class="help">
   Query params: <code>?args=--frames%20600%20--no-window</code> replaces the extra runtime
   arguments; <code>&amp;env=KEY=VALUE,KEY2=VALUE2</code> sets environment variables;
@@ -46,6 +54,7 @@
 <div id="log"></div>
 <script src="rom_sha1.js" onerror="void 0"></script>
 <script src="host_web.js"></script>
+<script src="save_store.js"></script>
 <script src="bootstrap.js"></script>
 </body>
 </html>

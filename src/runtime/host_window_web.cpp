@@ -156,4 +156,8 @@ bool HostWindow::linear_filter()const{return impl_&&backend(impl_)->shared.contr
 void HostWindow::set_resize_driven_view(bool v){if(impl_)backend(impl_)->resize=v;}
 bool HostWindow::assist_tools_enabled()const{return impl_&&backend(impl_)->assist;}
 int HostWindow::fast_forward_multiplier()const{return impl_?backend(impl_)->turbo:4;}
+void web_notify_storage_write(WebStorageWrite kind,bool ok) {
+    // Async proxy: only integers cross, so nothing can be freed before it runs.
+    MAIN_THREAD_ASYNC_EM_ASM({ globalThis.GbrSaves?.onWrite($0,$1); },static_cast<int>(kind),ok?1:0);
+}
 }
