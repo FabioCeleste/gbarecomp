@@ -3,6 +3,7 @@
 'use strict';
 const DEFAULT_KEYS=['KeyX','KeyZ','ShiftRight','Enter','ArrowRight','ArrowLeft','ArrowUp','ArrowDown','KeyV','KeyC'];
 const COMMAND={Pause:1,Save:2,Load:3,WindowBigger:4,WindowSmaller:5,VolumeUp:6,VolumeDown:7,DisplayPerf:8,Rewind:9,SolarBrighter:10,SolarDimmer:11,SolarLive:12};
+const DETACH={Pending:0,SafeToFree:1,UnsafeRetain:2};
 const gcd=(a,b)=>b?gcd(b,a%b):a;
 function layout(dw,dh,w,h){const g=gcd(w,h),u=Math.floor(Math.min(dw/(w/g),dh/(h/g)));return {x:Math.floor((dw-u*w/g)/2),y:Math.floor((dh-u*h/g)/2),w:u*w/g,h:u*h/g,integer:u%g===0};}
 class Host {
@@ -69,6 +70,7 @@ class Host {
     if(!this.gl)throw Error('WebGL was not initialized');
     this.getBuffer=getBuffer;this.ptr=ptr;this.d=d;this.refresh();
     if(this.load('magic')!==d.magic||this.load('version')!==d.version||this.load('bytes')!==d.bytes||ptr+d.bytes>this.buffer.byteLength)throw Error('Invalid host descriptor');
+    this.store('detached',DETACH.Pending);
     this.staging=new Uint8Array(d.pixelBytes);this.front=0;this.active=true;this.finalStats=undefined;this.stats.state='ready';this.stats.generation=this.load('generation');
     this.observer?.disconnect(); // the post-exit observer of a previous attach
     this.bindInput();this.observer=new ResizeObserver(()=>{this.redraw=true;});this.observer.observe(this.canvas.parentElement);this.redraw=true;
@@ -192,6 +194,7 @@ class Host {
   }
   async finishDetach(){
     this.stats.state='stopping';this.active=false;cancelAnimationFrame(this.raf);
+    let workletStopped=!this.node,contextClosed=!this.audio||this.audio.state==='closed';
     try{
       try{this.tickVideo();}catch(e){this.fail(e);}
       this.clearInput();this.unbindInput();this.observer?.disconnect();
@@ -199,16 +202,19 @@ class Host {
       // also a device-level barrier, including suspended/partially started audio.
       if(this.node){
         const stopped=new Promise(resolve=>{this.stopAck=resolve;});this.node.port.postMessage({type:'stop'});
-        if(this.audio?.state==='running')await Promise.race([stopped,new Promise(resolve=>setTimeout(resolve,1000))]);
+        workletStopped=await Promise.race([stopped,new Promise(resolve=>setTimeout(()=>resolve(false),1000))])!==false;
+        this.stopAck=null;
         this.node.disconnect();
       }
       if(this.audio&&this.audio.state!=='closed')await this.audio.close();
+      contextClosed=!this.audio||this.audio.state==='closed';
     }catch(e){this.report('Detach cleanup failed: '+(e?.message||e));}
     finally{
-      // HostWindow::close() aborts the runtime unless `detached` is published,
-      // so no cleanup failure above may skip it. The audio graph is not reused.
-      try{this.finalStats=this.snapshot();this.finalStats.detached=1;}catch(e){this.report('Detach stats failed: '+(e?.message||e));}
-      try{this.store('detached',1);}catch(e){this.report('Detach flag failed: '+(e?.message||e));}
+      // Backend storage may be freed only after both page-side audio barriers.
+      const detached=workletStopped&&contextClosed?DETACH.SafeToFree:DETACH.UnsafeRetain;
+      try{this.finalStats=this.snapshot();this.finalStats.detached=detached;}catch(e){this.report('Detach stats failed: '+(e?.message||e));}
+      try{this.store('detached',detached);}catch(e){this.report('Detach flag failed: '+(e?.message||e));}
+      if(detached===DETACH.UnsafeRetain)this.report('Audio detach not confirmed; retaining wasm host storage');
       // Keep only the private staging image for resize/context restoration after
       // guest exit. No callback may retain a view into freed game storage.
       this.control=null;this.buffer=null;this.getBuffer=null;

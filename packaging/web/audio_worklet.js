@@ -9,6 +9,8 @@ class GbrAudioProcessor extends AudioWorkletProcessor {
         this.stopped = true; this.ready = false;
         if (this.dsp) this.dsp._dsp_free();
         this.control = null; this.buffer = null;
+        // This acknowledgement is the page/C++ ownership barrier: no later
+        // process callback may retain a view into the shared wasm storage.
         this.port.postMessage({type:'stopped'}); return;
       }
       if (data.type !== 'attach' || this.stopped) return;

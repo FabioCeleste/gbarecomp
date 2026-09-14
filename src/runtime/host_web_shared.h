@@ -8,6 +8,9 @@
 
 namespace gbarecomp::web {
 constexpr uint32_t Magic = 0x47425257, Version = 1, Dirty = 4;
+// Ownership handshake for Backend storage during page-side detach. JS may only
+// publish SafeToFree after the AudioWorklet stopped and AudioContext closed.
+enum DetachState : uint32_t { DetachPending, DetachSafeToFree, DetachUnsafeRetain };
 constexpr uint32_t PixelBytes = gba::GbaPpu::kMaxRenderWidth * gba::GbaPpu::kMaxRenderHeight * 3;
 constexpr uint32_t AudioSlots = 16, AudioSamples = 2048, CommandSlots = 64;
 // Single source of truth: also exported as a named JS descriptor by the backend.
