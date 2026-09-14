@@ -84,15 +84,21 @@ void HostWindow::close() {
     auto* b=backend(impl_); auto& c=b->shared.control; c.state=Stopping;
     MAIN_THREAD_EM_ASM({ globalThis.GbrHost.detach(); });
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
-    while(!c.detached.load(std::memory_order_acquire)) {
+    while(c.detached.load(std::memory_order_acquire)==DetachPending) {
         if(std::chrono::steady_clock::now()>=deadline) {
             // Never free storage that a late AudioWorklet can still access.
-            std::fprintf(stderr,"host_web: detach timeout; terminating runtime\n");
-            std::abort();
+            std::fprintf(stderr,"host_web: detach timeout; retaining backend storage\n");
+            impl_=nullptr; open_=false;
+            return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
-    delete b; impl_=nullptr; open_=false;
+    if(c.detached.load(std::memory_order_acquire)==DetachSafeToFree) {
+        delete b;
+    } else {
+        std::fprintf(stderr,"host_web: audio detach not confirmed; retaining backend storage\n");
+    }
+    impl_=nullptr; open_=false;
 }
 bool HostWindow::set_surface_size(int w,int h) { if(!impl_||!dimensions(w,h))return false; backend(impl_)->width=w;backend(impl_)->height=h;return true; }
 bool HostWindow::drawable_size(int* w,int* h) const { if(!impl_||!w||!h)return false; auto d=backend(impl_)->shared.control.drawable.load(); *w=d&65535;*h=d>>16;return *w&&*h; }

@@ -399,8 +399,21 @@ else()
 endif()
 target_include_directories(gbarecomp_runtime PUBLIC src/runtime)
 option(GBARECOMP_WEB_HOST "Build the browser HostWindow backend" OFF)
+if(EMSCRIPTEN AND NOT GBARECOMP_WEB_HOST)
+    message(FATAL_ERROR
+        "Emscripten builds require -DGBARECOMP_WEB_HOST=ON; use "
+        "packaging/web/build_web.sh for the supported browser bundle")
+endif()
 if(GBARECOMP_WEB_HOST AND NOT EMSCRIPTEN)
     message(FATAL_ERROR "GBARECOMP_WEB_HOST requires Emscripten")
+endif()
+if(EMSCRIPTEN)
+    include(cmake/web_host_link_options.cmake)
+    gbarecomp_web_host_link_options(GBARECOMP_WEB_HOST_LINK_OPTIONS)
+    string(JOIN "\n" GBARECOMP_WEB_HOST_LINK_OPTIONS_RSP
+        ${GBARECOMP_WEB_HOST_LINK_OPTIONS})
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gbarecomp_web_host_link_options.rsp"
+        "${GBARECOMP_WEB_HOST_LINK_OPTIONS_RSP}\n")
 endif()
 if(EMSCRIPTEN AND GBARECOMP_RUNTIME_UI_ROOT)
     message(FATAL_ERROR "The SDL_Renderer2 runtime UI is unavailable on wasm; use the HTML host controls")

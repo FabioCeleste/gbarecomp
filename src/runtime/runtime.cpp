@@ -3102,9 +3102,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             std::string path = slot_path(ev.load_slot);
             std::string e;
             if (do_savestate_load(path, e)) {
-#if defined(GBARECOMP_WEB_HOST)
-                win.reset_audio();
-#endif
                 std::printf("savestate_loaded slot=%d path=\"%s\" pc=0x%08x "
                             "frame=%llu\n", ev.load_slot, path.c_str(),
                             g_cpu.R[15],
@@ -3150,9 +3147,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                         rewind_history[target_index].state, e)) {
                     while (rewind_history.size() > target_index + 1)
                         rewind_history.pop_back();
-#if defined(GBARECOMP_WEB_HOST)
-                    win.reset_audio();
-#endif
                     last_presented_frame = ppu.frame_count() - 1;
                     next_rewind_capture_frame =
                         ppu.frame_count() + rewind_interval;
@@ -3181,6 +3175,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         int16_t audio_buf[2048];
 #if defined(GBARECOMP_WEB_HOST)
         if (host_audio_state_epoch != g_runtime_state_epoch) {
+            // State restore owns audio invalidation through this epoch. Keep
+            // load/rewind command handlers free of direct reset_audio() calls.
             win.reset_audio();
             host_audio_state_epoch = g_runtime_state_epoch;
         }
