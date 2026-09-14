@@ -144,6 +144,9 @@ struct Args {
     std::string rom;
     std::string rom_sha1;
     std::uint32_t rom_crc32 = 0;  // 0 = no CRC check (per-game TOML fills)
+    // --strict-asset-hashes: a BIOS or ROM SHA-1 mismatch refuses to launch
+    // instead of warn-and-try. The browser page always passes it.
+    bool strict_asset_hashes = false;
     std::string save_path;
     // Save-state slot directory (<dir>/state<N>). Empty keeps the historical
     // <rom>.state<N> location.
@@ -1067,6 +1070,10 @@ bool parse_cli(int argc, char** argv, Args* args, std::string* err) {
             args->bios_skip_intro = 0;
             continue;
         }
+        if (s == "--strict-asset-hashes") {
+            args->strict_asset_hashes = true;
+            continue;
+        }
         if (s == "--window") {
             args->window = true;
             args->window_set = true;
@@ -1259,6 +1266,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                                 ? gba::GbaBios::kExpectedSha1
                                 : args.bios_sha1.c_str();
         spec.expected_crc32 = args.bios_crc32;
+        spec.hash_mismatch_is_error = args.strict_asset_hashes;
         auto r = resolve_asset(args.bios, spec, argv[0]);
         if (!r.ok) {
             std::fprintf(stderr,
@@ -1290,6 +1298,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         spec.expected_size  = 0;  // GBA ROMs vary in size; SHA-1 covers it
         spec.expected_sha1  = args.rom_sha1.c_str();
         spec.expected_crc32 = args.rom_crc32;
+        spec.hash_mismatch_is_error = args.strict_asset_hashes;
         auto r = resolve_asset(args.rom, spec, argv[0]);
         if (!r.ok) {
             std::fprintf(stderr,

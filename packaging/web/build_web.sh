@@ -1,10 +1,12 @@
 #!/bin/bash
 # Build a browser bundle for an exported game project (tools/cli.py build ...).
 #
-#   packaging/web/build_web.sh <project dir> <generated BIOS dir> [rom] [bios]
+#   packaging/web/build_web.sh [--rom-sha1 HEX] <project dir> <generated BIOS dir>
 #
-# Produces <project dir>/web/{index.html,game.js,game.wasm,...}. Serve it with
-# packaging/web/serve.py (COOP/COEP are required for pthreads).
+# Produces <project dir>/web/{index.html,game.js,game.wasm,manifest.json,...}.
+# Serve it with packaging/web/serve.py (COOP/COEP are required for pthreads).
+# The ROM and BIOS are never copied into the bundle (LEGAL.md): the visitor
+# loads their own dumps in the page, checked against manifest.json "assets".
 #
 # Isolated build/output directories: GBARECOMP_WEB_BUILD_DIR (runtime),
 # GBARECOMP_WEB_GAME_BUILD_DIR (game library), GBARECOMP_WEB_OUT_DIR (bundle).
@@ -27,6 +29,17 @@
 # build is only honest for a game whose coverage is FULLY STATIC.
 set -euo pipefail
 
+ROM_SHA1_ARGS=()
+if [ "${1:-}" = "--rom-sha1" ]; then
+  [ $# -ge 2 ] || { echo "error: --rom-sha1 needs a value" >&2; exit 2; }
+  ROM_SHA1_ARGS=(--rom-sha1 "$2")
+  shift 2
+fi
+if [ $# -gt 2 ]; then
+  echo "error: ROM and BIOS are never copied into a browser bundle (LEGAL.md)." >&2
+  echo "       Load them in the page; for local tests use packaging/web/serve.py <bundle> --dev-assets <dir>." >&2
+  exit 2
+fi
 if [ $# -lt 2 ]; then
   sed -n '2,8p' "$0"
   exit 2
@@ -35,8 +48,6 @@ fi
 R=$(cd "$(dirname "$0")/../.." && pwd)
 PROJECT=$(cd "$1" && pwd)
 BIOS_GEN=$(cd "$2" && pwd)
-ROM=${3:-}
-BIOS=${4:-}
 JOBS=${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}
 absolute_dir() { mkdir -p "$1"; (cd "$1" && pwd); }
 B=$(absolute_dir "${GBARECOMP_WEB_BUILD_DIR:-$R/build-web-host}")
@@ -49,6 +60,13 @@ check_cache() {
 }
 check_cache "$B" "$R"
 check_cache "$GAME_BUILD" "$PROJECT"
+if ! STALE=$(python3 "$R/packaging/web/bundle_policy.py" stale "$OUT"); then
+  echo "error: $OUT still holds ROM/BIOS copies from an older build_web.sh:" >&2
+  echo "$STALE" >&2
+  echo "       move them out of the bundle (e.g. to a --dev-assets dir, see docs/WEB_PRIVATE_TEST_HOSTING.md) and rerun" >&2
+  exit 1
+fi
+python3 "$R/packaging/web/bundle_policy.py" expected "$PROJECT" ${ROM_SHA1_ARGS[@]+"${ROM_SHA1_ARGS[@]}"}
 for source in bios_recompiled.cpp bios_dispatch_table.cpp; do
   test -s "$BIOS_GEN/$source" || { echo "error: missing generated BIOS $source" >&2; exit 1; }
 done
@@ -106,23 +124,10 @@ em++ -O2 -std=c++20 -I"$R/src/runtime" "$R/src/runtime/host_web_audio_dsp.cpp" -
   -sEXPORTED_RUNTIME_METHODS=HEAP16 -sINITIAL_MEMORY=16777216 \
   -o "$OUT/audio_dsp.js"
 cat "$OUT/audio_dsp.js" "$R/packaging/web/audio_worklet.js" > "$OUT/audio_worklet_bundle.js"
-cp "$R/packaging/web/index.html" "$R/packaging/web/host_web.js" "$R/packaging/web/save_store.js" "$R/packaging/web/bootstrap.js" "$R/packaging/web/audio_worklet.js" "$OUT/"
-python3 - "$R" "$OUT" "$BIOS_GEN" "$PROJECT" <<'MANIFEST'
-import hashlib,json,pathlib,subprocess,sys
-root,out,bios,project=map(pathlib.Path,sys.argv[1:])
-def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
-data={'abi':1,'host_backend':'web','revision':subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),
-      'emcc':subprocess.check_output(['emcc','--version'],text=True).splitlines()[0],
-      'files':{p.name:digest(p) for p in out.iterdir() if p.is_file() and p.name in ['game.js','game.wasm','host_web.js','save_store.js','bootstrap.js','index.html','audio_worklet_bundle.js']},
-      'inputs':{p.name:digest(p) for p in [bios/'bios_recompiled.cpp',bios/'bios_dispatch_table.cpp',project/'game.toml'] if p.exists()}}
-(out/'manifest.json').write_text(json.dumps(data,indent=2)+'\n')
-MANIFEST
-if [ -n "$ROM" ]; then
-  cp "$ROM" "$OUT/game.gba"
-  printf 'self.GBARECOMP_ROM_SHA1 = "%s";\n' "$(shasum -a 1 "$ROM" | cut -d' ' -f1)" > "$OUT/rom_sha1.js"
-fi
-if [ -n "$BIOS" ]; then
-  cp "$BIOS" "$OUT/gba_bios.bin"
-fi
+cp "$R/packaging/web/index.html" "$R/packaging/web/host_web.js" "$R/packaging/web/save_store.js" "$R/packaging/web/asset_store.js" "$R/packaging/web/bootstrap.js" "$R/packaging/web/audio_worklet.js" "$OUT/"
+printf 'User-agent: *\nDisallow: /\n' > "$OUT/robots.txt"
+python3 "$R/packaging/web/bundle_policy.py" manifest "$R" "$OUT" "$BIOS_GEN" "$PROJECT" \
+  ${ROM_SHA1_ARGS[@]+"${ROM_SHA1_ARGS[@]}"}
+python3 "$R/tools/web_asset_guard.py" "$OUT"
 ls -la "$OUT" | grep -v ' \._'
-echo "== done. serve with: python3 $R/packaging/web/serve.py $OUT"
+echo "== done. serve with: python3 $R/packaging/web/serve.py $OUT  (load your own ROM + BIOS in the page)"

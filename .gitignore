@@ -81,3 +81,12 @@ recomp_coverage*.json
 recomp_master_misses*.toml.frag
 hang_trace.csv
 recomp_cache/
+
+# Copyrighted inputs and anything built from them never enter git (LEGAL.md).
+# tools/web_asset_guard.py --git enforces this by content, not by name.
+*.gba
+*.GBA
+*.agb
+*.sav
+roms/
+output/

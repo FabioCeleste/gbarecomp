@@ -707,6 +707,24 @@ if(UNIX)
     endif()
 endif()
 
+if(NOT EMSCRIPTEN)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME web_asset_guard_tests
+            COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/legal -p "test_*.py" -v)
+        add_test(NAME repo_has_no_copyrighted_assets
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/web_asset_guard.py --git
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
+    find_program(GBARECOMP_NODE_EXECUTABLE node)
+    if(GBARECOMP_NODE_EXECUTABLE)
+        add_test(NAME web_asset_store_unit
+            COMMAND ${GBARECOMP_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/web/asset_store_unit_test.js)
+    endif()
+endif()
+
 if(GBARECOMP_ENABLE_MODS)
     add_executable(mod_runtime_tests
         tests/mod_runtime/test_main.cpp

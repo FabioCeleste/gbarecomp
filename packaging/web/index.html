@@ -3,15 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gbarecomp web</title>
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>gbarecomp web (private test build)</title>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; padding: 16px; background: #111; color: #ddd;
          font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  #bar, #assetbar, #savebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   button { font: inherit; padding: 6px 14px; }
   #status { color: #9cf; }
-  #savebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  #romstatus, #biosstatus { word-break: break-all; }
+  #biosstatus { margin-bottom: 12px; }
   #surface { width: 100%; max-width: 720px; height: min(65vh, 600px); resize: both; overflow: hidden; }
   #surface:fullscreen { max-width: none !important; height: 100%; }
   canvas { display: block; background: #000; width: 100%; height: 100%; image-rendering: pixelated; }
@@ -19,11 +22,12 @@
          background: #000; padding: 8px; margin-top: 12px; }
   .err { color: #f88; }
   .help { color: #888; margin-top: 8px; }
+  .legal { color: #fc6; }
 </style>
 </head>
 <body>
 <div id="bar">
-  <button id="start">Start</button>
+  <button id="start" disabled>Start</button>
   <button id="pause" disabled>Pause / resume</button>
   <button id="fullscreen" disabled>Fullscreen</button>
   <button id="audio" disabled>Enable audio</button>
@@ -36,6 +40,14 @@
   <button id="save" disabled>Save state</button><button id="load" disabled>Load state</button>
   <span id="status">idle</span>
 </div>
+<div id="assetbar">
+  <label>Your ROM + BIOS <input id="assetfiles" type="file" multiple accept=".gba,.agb,.bin,application/octet-stream"></label>
+  <label><input id="remember" type="checkbox"> Remember in this browser</label>
+  <button id="forgetassets">Forget stored ROM/BIOS</button>
+  <span id="buildinfo"></span>
+</div>
+<div id="romstatus" class="err">ROM: waiting for manifest.json</div>
+<div id="biosstatus" class="err">BIOS: waiting for manifest.json</div>
 <div id="savebar">
   <span id="savestatus">Browser save</span>
   <button id="exportsave" disabled>Export save</button>
@@ -43,18 +55,21 @@
   <button id="restoresave">Restore backup</button>
   <button id="deletesaves">Delete saves</button>
 </div>
-<div id="surface"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0" aria-label="Game screen"></canvas></div>
+<div id="surface"><canvas id="canvas" tabindex="0" aria-label="Game screen"></canvas></div>
 <p id="metrics"></p><div id="downloads"></div>
+<p class="help">Use your own dumps. The ROM and BIOS are never uploaded: this tab checks their SHA-1, passes them to the game in memory, and keeps a copy in this browser only if you tick “Remember”. You can also drop both files on the game screen.</p>
 <p class="help">Saves stay in this browser (IndexedDB for this site, on this device) and are never uploaded. Private windows, clearing site data or a different domain lose them: export a copy to keep one. X/Z = A/B, arrows = D-pad, C/V = L/R, Enter = Start, right Shift = Select; Shift+P pauses. F1–F9 loads; Shift+F1–F9 saves. Click the game to activate keyboard/gamepad. Sensors and the native overlay are unavailable.</p>
 <div class="help">
   Query params: <code>?args=--frames%20600%20--no-window</code> replaces the extra runtime
   arguments; <code>&amp;env=KEY=VALUE,KEY2=VALUE2</code> sets environment variables;
-  <code>&amp;rom=file.gba&amp;bios=file.bin</code> picks the served asset names.
+  <code>&amp;rom=/dev-assets/game.gba&amp;bios=/dev-assets/gba_bios.bin</code> loads local test files
+  on localhost only (<code>packaging/web/serve.py --dev-assets</code>).
 </div>
+<p class="help legal">Private test build: do not share this link. The game code in this build is translated from a copyrighted game and BIOS and may not be redistributed (LEGAL.md). Not affiliated with or endorsed by Nintendo; Game Boy Advance is a trademark of Nintendo.</p>
 <div id="log"></div>
-<script src="rom_sha1.js" onerror="void 0"></script>
 <script src="host_web.js"></script>
 <script src="save_store.js"></script>
+<script src="asset_store.js"></script>
 <script src="bootstrap.js"></script>
 </body>
 </html>

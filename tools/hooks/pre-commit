@@ -1,0 +1,3 @@
+#!/bin/sh
+# Opt-in: git config core.hooksPath tools/hooks
+exec python3 "$(git rev-parse --show-toplevel)/tools/web_asset_guard.py" --git
